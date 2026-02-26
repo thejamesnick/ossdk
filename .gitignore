@@ -1,7 +1,29 @@
 node_modules/
-target/
-.anchor/
 .DS_Store
 test-ledger/
 *.log
 .env
+
+# Anchor build artifacts
+.anchor/
+target/deploy/
+target/sbf-solana-solana/
+target/types/
+
+# Keep IDL files for SDK
+!target/idl/
+target/idl/*.ts
+
+# Yarn
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
+yarn-error.log
+
+# SDK build
+sdk/*/dist/
+sdk/*/node_modules/

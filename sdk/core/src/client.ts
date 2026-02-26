@@ -41,7 +41,7 @@ import {
 export class SolanaStablecoin {
   public readonly connection: Connection;
   public readonly program: Program;
-  public readonly mint: PublicKey;
+  public readonly mintAddress: PublicKey;
   public readonly stablecoin: PublicKey;
   public readonly authority: PublicKey;
   private readonly wallet: Wallet;
@@ -49,14 +49,14 @@ export class SolanaStablecoin {
   constructor(
     connection: Connection,
     program: Program,
-    mint: PublicKey,
+    mintAddress: PublicKey,
     stablecoin: PublicKey,
     authority: PublicKey,
     wallet: Wallet
   ) {
     this.connection = connection;
     this.program = program;
-    this.mint = mint;
+    this.mintAddress = mintAddress;
     this.stablecoin = stablecoin;
     this.authority = authority;
     this.wallet = wallet;
@@ -173,20 +173,20 @@ export class SolanaStablecoin {
    * Get stablecoin account data
    */
   async getAccount(): Promise<StablecoinAccount> {
-    return await this.program.account.stablecoin.fetch(this.stablecoin);
+    return await (this.program.account as any).stablecoin.fetch(this.stablecoin);
   }
 
   /**
    * Mint tokens
    */
-  async mint(options: MintOptions): Promise<string> {
+  async mintTokens(options: MintOptions): Promise<string> {
     const [minterAccount] = getMinterPDA(this.stablecoin, options.minter);
 
     // Get or create recipient token account
     const recipientTokenAccount = await getOrCreateAssociatedTokenAccount(
       this.connection,
       this.wallet.payer,
-      this.mint,
+      this.mintAddress,
       options.recipient,
       false,
       undefined,
@@ -200,7 +200,7 @@ export class SolanaStablecoin {
       .mint(amount)
       .accounts({
         stablecoin: this.stablecoin,
-        mint: this.mint,
+        mint: this.mintAddress,
         recipientTokenAccount: recipientTokenAccount.address,
         minterAccount,
         minter: options.minter,
@@ -218,7 +218,7 @@ export class SolanaStablecoin {
     const ownerTokenAccount = await getOrCreateAssociatedTokenAccount(
       this.connection,
       this.wallet.payer,
-      this.mint,
+      this.mintAddress,
       options.owner,
       false,
       undefined,
@@ -232,7 +232,7 @@ export class SolanaStablecoin {
       .burn(amount)
       .accounts({
         stablecoin: this.stablecoin,
-        mint: this.mint,
+        mint: this.mintAddress,
         userTokenAccount: ownerTokenAccount.address,
         user: options.owner,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -250,7 +250,7 @@ export class SolanaStablecoin {
       .freezeAccount()
       .accounts({
         stablecoin: this.stablecoin,
-        mint: this.mint,
+        mint: this.mintAddress,
         targetTokenAccount: account,
         authority: this.authority,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -268,7 +268,7 @@ export class SolanaStablecoin {
       .thawAccount()
       .accounts({
         stablecoin: this.stablecoin,
-        mint: this.mint,
+        mint: this.mintAddress,
         targetTokenAccount: account,
         authority: this.authority,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -335,7 +335,7 @@ export class SolanaStablecoin {
   async getMinter(minter: PublicKey): Promise<MinterAccount | null> {
     try {
       const [minterAccount] = getMinterPDA(this.stablecoin, minter);
-      return await this.program.account.minterAccount.fetch(minterAccount);
+      return await (this.program.account as any).minterAccount.fetch(minterAccount);
     } catch {
       return null;
     }
@@ -362,7 +362,7 @@ export class SolanaStablecoin {
   async getTotalSupply(): Promise<number> {
     const mintInfo = await getMint(
       this.connection,
-      this.mint,
+      this.mintAddress,
       undefined,
       TOKEN_2022_PROGRAM_ID
     );
@@ -418,7 +418,7 @@ export class SolanaStablecoin {
       isBlacklisted: async (address: PublicKey): Promise<boolean> => {
         try {
           const [blacklistEntry] = getBlacklistPDA(this.stablecoin, address);
-          await this.program.account.blacklistEntry.fetch(blacklistEntry);
+          await (this.program.account as any).blacklistEntry.fetch(blacklistEntry);
           return true;
         } catch {
           return false;
@@ -431,7 +431,7 @@ export class SolanaStablecoin {
       getBlacklistEntry: async (address: PublicKey): Promise<BlacklistEntry | null> => {
         try {
           const [blacklistEntry] = getBlacklistPDA(this.stablecoin, address);
-          return await this.program.account.blacklistEntry.fetch(blacklistEntry);
+          return await (this.program.account as any).blacklistEntry.fetch(blacklistEntry);
         } catch {
           return null;
         }
@@ -444,7 +444,7 @@ export class SolanaStablecoin {
         const sourceAccount = await getOrCreateAssociatedTokenAccount(
           this.connection,
           this.wallet.payer,
-          this.mint,
+          this.mintAddress,
           options.from,
           false,
           undefined,
@@ -455,7 +455,7 @@ export class SolanaStablecoin {
         const destinationAccount = await getOrCreateAssociatedTokenAccount(
           this.connection,
           this.wallet.payer,
-          this.mint,
+          this.mintAddress,
           options.to,
           false,
           undefined,
@@ -469,7 +469,7 @@ export class SolanaStablecoin {
           .seize(amount)
           .accounts({
             stablecoin: this.stablecoin,
-            mint: this.mint,
+            mint: this.mintAddress,
             sourceAccount: sourceAccount.address,
             destinationAccount: destinationAccount.address,
             authority: this.authority,
