@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use spl_transfer_hook_interface::instruction::{ExecuteInstruction, TransferHookInstruction};
 
 declare_id!("SSS1Hook11111111111111111111111111111111111");
 
@@ -28,7 +27,7 @@ pub mod sss_transfer_hook {
 
     /// Initialize extra account metas for the transfer hook
     pub fn initialize_extra_account_meta_list(
-        ctx: Context<InitializeExtraAccountMetaList>,
+        _ctx: Context<InitializeExtraAccountMetaList>,
     ) -> Result<()> {
         // Store the extra accounts needed for blacklist checks
         // This would include the blacklist PDA derivation info

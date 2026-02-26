@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_2022::{
-    self, Burn, FreezeAccount, Mint, MintTo, ThawAccount, Token2022, TokenAccount, TransferChecked,
-};
+use anchor_spl::token_2022::{self, Burn, FreezeAccount, MintTo, ThawAccount, Token2022};
+use anchor_spl::token_interface::{Mint, TokenAccount};
 
 declare_id!("SSS1Core11111111111111111111111111111111111");
 
@@ -275,20 +274,18 @@ pub mod sss_core {
         let seeds = &[b"stablecoin", stablecoin.mint.as_ref(), &[stablecoin.bump]];
         let signer = &[&seeds[..]];
 
-        token_2022::transfer_checked(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                token_2022::TransferChecked {
-                    from: ctx.accounts.source_account.to_account_info(),
-                    mint: ctx.accounts.mint.to_account_info(),
-                    to: ctx.accounts.destination_account.to_account_info(),
-                    authority: ctx.accounts.stablecoin.to_account_info(),
-                },
-                signer,
-            ),
-            amount,
-            ctx.accounts.mint.decimals,
-        )?;
+        let cpi_accounts = anchor_spl::token_interface::TransferChecked {
+            from: ctx.accounts.source_account.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            to: ctx.accounts.destination_account.to_account_info(),
+            authority: ctx.accounts.stablecoin.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            cpi_accounts,
+            signer,
+        );
+        anchor_spl::token_interface::transfer_checked(cpi_ctx, amount, ctx.accounts.mint.decimals)?;
 
         emit!(TokensSeized {
             stablecoin: stablecoin.key(),
@@ -376,7 +373,7 @@ pub struct Initialize<'info> {
         bump
     )]
     pub stablecoin: Account<'info, Stablecoin>,
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
     #[account(mut)]
     pub authority: Signer<'info>,
     pub system_program: Program<'info, System>,
@@ -390,9 +387,9 @@ pub struct MintTokens<'info> {
     )]
     pub stablecoin: Account<'info, Stablecoin>,
     #[account(mut)]
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
     #[account(mut)]
-    pub recipient_token_account: Account<'info, TokenAccount>,
+    pub recipient_token_account: InterfaceAccount<'info, TokenAccount>,
     #[account(
         mut,
         seeds = [b"minter", stablecoin.key().as_ref(), minter.key().as_ref()],
@@ -411,9 +408,9 @@ pub struct BurnTokens<'info> {
     )]
     pub stablecoin: Account<'info, Stablecoin>,
     #[account(mut)]
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
     #[account(mut)]
-    pub user_token_account: Account<'info, TokenAccount>,
+    pub user_token_account: InterfaceAccount<'info, TokenAccount>,
     pub user: Signer<'info>,
     pub token_program: Program<'info, Token2022>,
 }
@@ -427,9 +424,9 @@ pub struct FreezeAccountCtx<'info> {
     )]
     pub stablecoin: Account<'info, Stablecoin>,
     #[account(mut)]
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
     #[account(mut)]
-    pub target_token_account: Account<'info, TokenAccount>,
+    pub target_token_account: InterfaceAccount<'info, TokenAccount>,
     pub authority: Signer<'info>,
     pub token_program: Program<'info, Token2022>,
 }
@@ -443,9 +440,9 @@ pub struct ThawAccountCtx<'info> {
     )]
     pub stablecoin: Account<'info, Stablecoin>,
     #[account(mut)]
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
     #[account(mut)]
-    pub target_token_account: Account<'info, TokenAccount>,
+    pub target_token_account: InterfaceAccount<'info, TokenAccount>,
     pub authority: Signer<'info>,
     pub token_program: Program<'info, Token2022>,
 }
@@ -560,11 +557,11 @@ pub struct SeizeTokens<'info> {
     )]
     pub stablecoin: Account<'info, Stablecoin>,
     #[account(mut)]
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
     #[account(mut)]
-    pub source_account: Account<'info, TokenAccount>,
+    pub source_account: InterfaceAccount<'info, TokenAccount>,
     #[account(mut)]
-    pub destination_account: Account<'info, TokenAccount>,
+    pub destination_account: InterfaceAccount<'info, TokenAccount>,
     pub authority: Signer<'info>,
     pub token_program: Program<'info, Token2022>,
 }
