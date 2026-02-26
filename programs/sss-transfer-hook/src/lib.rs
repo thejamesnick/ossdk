@@ -10,13 +10,20 @@ pub mod sss_transfer_hook {
     /// Transfer hook that checks blacklist before allowing transfers
     pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
         // Check if source is blacklisted
-        if ctx.accounts.source_blacklist.data_is_empty() {
-            // Not blacklisted, allow transfer
-            return Ok(());
+        if !ctx.accounts.source_blacklist.data_is_empty() {
+            msg!("Source address is blacklisted");
+            return err!(ErrorCode::AddressBlacklisted);
         }
 
-        // If blacklist entry exists, reject transfer
-        return err!(ErrorCode::AddressBlacklisted);
+        // Check if destination is blacklisted
+        if !ctx.accounts.destination_blacklist.data_is_empty() {
+            msg!("Destination address is blacklisted");
+            return err!(ErrorCode::AddressBlacklisted);
+        }
+
+        // Both addresses are clean, allow transfer
+        msg!("Transfer allowed: {} tokens", amount);
+        Ok(())
     }
 
     /// Initialize extra account metas for the transfer hook

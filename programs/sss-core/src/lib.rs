@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_2022::{
-    self, Burn, FreezeAccount, Mint, MintTo, ThawAccount, Token2022, TokenAccount,
+    self, Burn, FreezeAccount, Mint, MintTo, ThawAccount, Token2022, TokenAccount, TransferChecked,
 };
 
 declare_id!("SSS1Core11111111111111111111111111111111111");
@@ -261,6 +261,45 @@ pub mod sss_core {
 
         Ok(())
     }
+
+    /// Seize tokens from account (SSS-2 only, requires permanent delegate)
+    pub fn seize(ctx: Context<SeizeTokens>, amount: u64) -> Result<()> {
+        let stablecoin = &ctx.accounts.stablecoin;
+        require!(
+            stablecoin.enable_permanent_delegate,
+            ErrorCode::ComplianceNotEnabled
+        );
+        require!(!stablecoin.is_paused, ErrorCode::ContractPaused);
+
+        // Transfer tokens using permanent delegate authority
+        let seeds = &[b"stablecoin", stablecoin.mint.as_ref(), &[stablecoin.bump]];
+        let signer = &[&seeds[..]];
+
+        token_2022::transfer_checked(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token_2022::TransferChecked {
+                    from: ctx.accounts.source_account.to_account_info(),
+                    mint: ctx.accounts.mint.to_account_info(),
+                    to: ctx.accounts.destination_account.to_account_info(),
+                    authority: ctx.accounts.stablecoin.to_account_info(),
+                },
+                signer,
+            ),
+            amount,
+            ctx.accounts.mint.decimals,
+        )?;
+
+        emit!(TokensSeized {
+            stablecoin: stablecoin.key(),
+            from: ctx.accounts.source_account.key(),
+            to: ctx.accounts.destination_account.key(),
+            amount,
+            authority: ctx.accounts.authority.key(),
+        });
+
+        Ok(())
+    }
 }
 
 // Account Structures
@@ -512,6 +551,24 @@ pub struct RemoveFromBlacklist<'info> {
     pub authority: Signer<'info>,
 }
 
+#[derive(Accounts)]
+pub struct SeizeTokens<'info> {
+    #[account(
+        seeds = [b"stablecoin", mint.key().as_ref()],
+        bump = stablecoin.bump,
+        has_one = authority
+    )]
+    pub stablecoin: Account<'info, Stablecoin>,
+    #[account(mut)]
+    pub mint: Account<'info, Mint>,
+    #[account(mut)]
+    pub source_account: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub destination_account: Account<'info, TokenAccount>,
+    pub authority: Signer<'info>,
+    pub token_program: Program<'info, Token2022>,
+}
+
 // Events
 
 #[event]
@@ -586,6 +643,15 @@ pub struct AddressBlacklisted {
 pub struct AddressUnblacklisted {
     pub stablecoin: Pubkey,
     pub address: Pubkey,
+}
+
+#[event]
+pub struct TokensSeized {
+    pub stablecoin: Pubkey,
+    pub from: Pubkey,
+    pub to: Pubkey,
+    pub amount: u64,
+    pub authority: Pubkey,
 }
 
 // Error Codes
