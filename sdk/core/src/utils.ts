@@ -1,16 +1,17 @@
 import { PublicKey } from "@solana/web3.js";
-import BN from "bn.js";
+import { StablecoinConfig } from "./types";
+
+export const SSS_CORE_PROGRAM_ID = new PublicKey(
+  "4x5WYd89RdGgHRbt4qDt9ntvshKferBcaSwk2QWSh3q2"
+);
 
 /**
- * Program IDs
+ * Get stablecoin PDA
  */
-export const SSS_CORE_PROGRAM_ID = new PublicKey("SSS1Core11111111111111111111111111111111111");
-export const SSS_HOOK_PROGRAM_ID = new PublicKey("SSS1Hook11111111111111111111111111111111111");
-
-/**
- * Derive stablecoin PDA
- */
-export function getStablecoinPDA(mint: PublicKey, programId: PublicKey = SSS_CORE_PROGRAM_ID): [PublicKey, number] {
+export function getStablecoinPDA(
+  mint: PublicKey,
+  programId: PublicKey = SSS_CORE_PROGRAM_ID
+): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("stablecoin"), mint.toBuffer()],
     programId
@@ -18,7 +19,7 @@ export function getStablecoinPDA(mint: PublicKey, programId: PublicKey = SSS_COR
 }
 
 /**
- * Derive minter account PDA
+ * Get minter account PDA
  */
 export function getMinterPDA(
   stablecoin: PublicKey,
@@ -32,7 +33,7 @@ export function getMinterPDA(
 }
 
 /**
- * Derive blacklist entry PDA
+ * Get blacklist entry PDA
  */
 export function getBlacklistPDA(
   stablecoin: PublicKey,
@@ -46,39 +47,81 @@ export function getBlacklistPDA(
 }
 
 /**
- * Convert number to BN with decimals
+ * Compute instruction discriminator (first 8 bytes of SHA256 hash)
  */
-export function toBN(amount: number | BN, decimals: number = 6): BN {
-  if (BN.isBN(amount)) {
-    return amount;
-  }
-  return new BN(amount * Math.pow(10, decimals));
+export function getInstructionDiscriminator(name: string): Buffer {
+  const crypto = require("crypto");
+  const hash = crypto.createHash("sha256").update(`global:${name}`).digest();
+  return hash.slice(0, 8);
+}
+
+/**
+ * Serialize a string (u32 length + bytes)
+ */
+export function serializeString(str: string): Buffer {
+  const bytes = Buffer.from(str, "utf8");
+  const len = Buffer.alloc(4);
+  len.writeUInt32LE(bytes.length);
+  return Buffer.concat([len, bytes]);
+}
+
+/**
+ * Serialize a u64 value
+ */
+export function serializeU64(value: number | bigint): Buffer {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64LE(BigInt(value));
+  return buf;
+}
+
+/**
+ * Serialize a u8 value
+ */
+export function serializeU8(value: number): Buffer {
+  const buf = Buffer.alloc(1);
+  buf.writeUInt8(value);
+  return buf;
+}
+
+/**
+ * Serialize a boolean (as u8)
+ */
+export function serializeBool(value: boolean): Buffer {
+  return serializeU8(value ? 1 : 0);
+}
+
+/**
+ * Serialize a PublicKey
+ */
+export function serializePublicKey(pubkey: PublicKey): Buffer {
+  return pubkey.toBuffer();
+}
+
+/**
+ * Serialize StablecoinConfig struct
+ */
+export function serializeStablecoinConfig(config: StablecoinConfig): Buffer {
+  return Buffer.concat([
+    serializeString(config.name),
+    serializeString(config.symbol),
+    serializeString(config.uri),
+    serializeU8(config.decimals),
+    serializeBool(config.enablePermanentDelegate),
+    serializeBool(config.enableTransferHook),
+    serializeBool(config.defaultAccountFrozen),
+  ]);
+}
+
+/**
+ * Convert number to BN-compatible value
+ */
+export function toBN(value: number): bigint {
+  return BigInt(value);
 }
 
 /**
  * Convert BN to number with decimals
  */
-export function fromBN(amount: BN, decimals: number = 6): number {
-  return amount.toNumber() / Math.pow(10, decimals);
-}
-
-/**
- * Validate public key
- */
-export function isValidPublicKey(key: string | PublicKey): boolean {
-  try {
-    if (typeof key === "string") {
-      new PublicKey(key);
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Sleep utility
- */
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export function fromBN(value: bigint, decimals: number): number {
+  return Number(value) / Math.pow(10, decimals);
 }

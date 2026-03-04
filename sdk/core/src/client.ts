@@ -11,8 +11,12 @@ import {
   createMint,
   getOrCreateAssociatedTokenAccount,
   getMint,
+  getAccount,
+  getMintLen,
+  ExtensionType,
+  createInitializeMintInstruction,
+  createInitializePermanentDelegateInstruction,
 } from "@solana/spl-token";
-import { Program, AnchorProvider, Wallet, BN } from "@coral-xyz/anchor";
 import {
   StablecoinConfig,
   CreateWithPresetOptions,
@@ -21,9 +25,6 @@ import {
   MinterOptions,
   BlacklistAddOptions,
   SeizeOptions,
-  StablecoinAccount,
-  MinterAccount,
-  BlacklistEntry,
 } from "./types";
 import { getPresetConfig } from "./presets";
 import {
@@ -31,8 +32,12 @@ import {
   getStablecoinPDA,
   getMinterPDA,
   getBlacklistPDA,
-  toBN,
-  fromBN,
+  getInstructionDiscriminator,
+  serializeStablecoinConfig,
+  serializeU64,
+  serializeBool,
+  serializeString,
+  serializePublicKey,
 } from "./utils";
 
 /**
@@ -40,26 +45,23 @@ import {
  */
 export class SolanaStablecoin {
   public readonly connection: Connection;
-  public readonly program: Program;
   public readonly mintAddress: PublicKey;
   public readonly stablecoin: PublicKey;
-  public readonly authority: PublicKey;
-  private readonly wallet: Wallet;
+  public readonly authority: Keypair;
+  public readonly programId: PublicKey;
 
   constructor(
     connection: Connection,
-    program: Program,
     mintAddress: PublicKey,
     stablecoin: PublicKey,
-    authority: PublicKey,
-    wallet: Wallet
+    authority: Keypair,
+    programId: PublicKey = SSS_CORE_PROGRAM_ID
   ) {
     this.connection = connection;
-    this.program = program;
     this.mintAddress = mintAddress;
     this.stablecoin = stablecoin;
     this.authority = authority;
-    this.wallet = wallet;
+    this.programId = programId;
   }
 
   /**
@@ -97,48 +99,62 @@ export class SolanaStablecoin {
     authority: Keypair,
     programId: PublicKey = SSS_CORE_PROGRAM_ID
   ): Promise<SolanaStablecoin> {
-    const wallet = new Wallet(authority);
-    const provider = new AnchorProvider(connection, wallet, {});
-    
-    // TODO: Load IDL and create program instance
-    // For now, we'll need the IDL from the built program
-    const program = null as any; // Placeholder
-
-    // Create Token-2022 mint
     const mintKeypair = Keypair.generate();
-    await createMint(
-      connection,
-      authority,
-      authority.publicKey,
-      authority.publicKey,
-      config.decimals,
-      mintKeypair,
-      undefined,
-      TOKEN_2022_PROGRAM_ID
-    );
-
-    // Derive stablecoin PDA
     const [stablecoin] = getStablecoinPDA(mintKeypair.publicKey, programId);
 
-    // Initialize stablecoin
-    await program.methods
-      .initialize(config)
-      .accounts({
+    // Create mint with appropriate extensions
+    if (config.enablePermanentDelegate) {
+      // Create mint with Permanent Delegate extension for SSS-2
+      await SolanaStablecoin.createMintWithPermanentDelegate(
+        connection,
+        authority,
         stablecoin,
-        mint: mintKeypair.publicKey,
-        authority: authority.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([authority])
-      .rpc();
+        stablecoin,
+        config.decimals,
+        stablecoin,
+        mintKeypair
+      );
+    } else {
+      // Create basic Token-2022 mint for SSS-1
+      await createMint(
+        connection,
+        authority,
+        stablecoin,
+        stablecoin,
+        config.decimals,
+        mintKeypair,
+        undefined,
+        TOKEN_2022_PROGRAM_ID
+      );
+    }
+
+    // Initialize stablecoin
+    const initData = Buffer.concat([
+      getInstructionDiscriminator("initialize"),
+      serializeStablecoinConfig(config),
+    ]);
+
+    const initIx = new TransactionInstruction({
+      keys: [
+        { pubkey: stablecoin, isSigner: false, isWritable: true },
+        { pubkey: mintKeypair.publicKey, isSigner: false, isWritable: false },
+        { pubkey: authority.publicKey, isSigner: true, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      programId,
+      data: initData,
+    });
+
+    const transaction = new Transaction().add(initIx);
+    await connection.sendTransaction(transaction, [authority]);
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     return new SolanaStablecoin(
       connection,
-      program,
       mintKeypair.publicKey,
       stablecoin,
-      authority.publicKey,
-      wallet
+      authority,
+      programId
     );
   }
 
@@ -151,41 +167,85 @@ export class SolanaStablecoin {
     authority: Keypair,
     programId: PublicKey = SSS_CORE_PROGRAM_ID
   ): Promise<SolanaStablecoin> {
-    const wallet = new Wallet(authority);
-    const provider = new AnchorProvider(connection, wallet, {});
-    
-    // TODO: Load IDL and create program instance
-    const program = null as any; // Placeholder
-
     const [stablecoin] = getStablecoinPDA(mint, programId);
 
     return new SolanaStablecoin(
       connection,
-      program,
       mint,
       stablecoin,
-      authority.publicKey,
-      wallet
+      authority,
+      programId
     );
   }
 
   /**
-   * Get stablecoin account data
+   * Helper to create Token-2022 mint with Permanent Delegate extension
    */
-  async getAccount(): Promise<StablecoinAccount> {
-    return await (this.program.account as any).stablecoin.fetch(this.stablecoin);
+  private static async createMintWithPermanentDelegate(
+    connection: Connection,
+    payer: Keypair,
+    mintAuthority: PublicKey,
+    freezeAuthority: PublicKey,
+    decimals: number,
+    permanentDelegate: PublicKey,
+    mintKeypair: Keypair
+  ): Promise<PublicKey> {
+    const mintLen = getMintLen([ExtensionType.PermanentDelegate]);
+    const lamports = await connection.getMinimumBalanceForRentExemption(mintLen);
+
+    const transaction = new Transaction().add(
+      SystemProgram.createAccount({
+        fromPubkey: payer.publicKey,
+        newAccountPubkey: mintKeypair.publicKey,
+        space: mintLen,
+        lamports,
+        programId: TOKEN_2022_PROGRAM_ID,
+      }),
+      createInitializePermanentDelegateInstruction(
+        mintKeypair.publicKey,
+        permanentDelegate,
+        TOKEN_2022_PROGRAM_ID
+      ),
+      createInitializeMintInstruction(
+        mintKeypair.publicKey,
+        decimals,
+        mintAuthority,
+        freezeAuthority,
+        TOKEN_2022_PROGRAM_ID
+      )
+    );
+
+    await connection.sendTransaction(transaction, [payer, mintKeypair]);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    return mintKeypair.publicKey;
+  }
+
+  /**
+   * Send and confirm a transaction
+   */
+  private async sendAndConfirm(
+    instruction: TransactionInstruction,
+    signers: Keypair[]
+  ): Promise<string> {
+    const transaction = new Transaction().add(instruction);
+    const signature = await this.connection.sendTransaction(transaction, signers, {
+      skipPreflight: false,
+      preflightCommitment: "confirmed",
+    });
+    await this.connection.confirmTransaction(signature, "confirmed");
+    return signature;
   }
 
   /**
    * Mint tokens
    */
   async mintTokens(options: MintOptions): Promise<string> {
-    const [minterAccount] = getMinterPDA(this.stablecoin, options.minter);
+    const [minterAccount] = getMinterPDA(this.stablecoin, options.minter, this.programId);
 
-    // Get or create recipient token account
-    const recipientTokenAccount = await getOrCreateAssociatedTokenAccount(
+    const recipientAta = await getOrCreateAssociatedTokenAccount(
       this.connection,
-      this.wallet.payer,
+      this.authority,
       this.mintAddress,
       options.recipient,
       false,
@@ -194,30 +254,37 @@ export class SolanaStablecoin {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const amount = toBN(options.amount);
+    const mintData = Buffer.concat([
+      getInstructionDiscriminator("mint"),
+      serializeU64(options.amount),
+    ]);
 
-    const tx = await this.program.methods
-      .mint(amount)
-      .accounts({
-        stablecoin: this.stablecoin,
-        mint: this.mintAddress,
-        recipientTokenAccount: recipientTokenAccount.address,
-        minterAccount,
-        minter: options.minter,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-      })
-      .rpc();
+    const mintIx = new TransactionInstruction({
+      keys: [
+        { pubkey: this.stablecoin, isSigner: false, isWritable: false },
+        { pubkey: this.mintAddress, isSigner: false, isWritable: true },
+        { pubkey: recipientAta.address, isSigner: false, isWritable: true },
+        { pubkey: minterAccount, isSigner: false, isWritable: true },
+        { pubkey: options.minter, isSigner: true, isWritable: false },
+        { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
+      ],
+      programId: this.programId,
+      data: mintData,
+    });
 
-    return tx;
+    // Need to get the minter keypair to sign
+    // This assumes the minter is passed in options
+    const minterKeypair = options.minterKeypair || this.authority;
+    return await this.sendAndConfirm(mintIx, [minterKeypair]);
   }
 
   /**
    * Burn tokens
    */
   async burn(options: BurnOptions): Promise<string> {
-    const ownerTokenAccount = await getOrCreateAssociatedTokenAccount(
+    const ownerAta = await getOrCreateAssociatedTokenAccount(
       this.connection,
-      this.wallet.payer,
+      this.authority,
       this.mintAddress,
       options.owner,
       false,
@@ -226,147 +293,164 @@ export class SolanaStablecoin {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const amount = toBN(options.amount);
+    const burnData = Buffer.concat([
+      getInstructionDiscriminator("burn"),
+      serializeU64(options.amount),
+    ]);
 
-    const tx = await this.program.methods
-      .burn(amount)
-      .accounts({
-        stablecoin: this.stablecoin,
-        mint: this.mintAddress,
-        userTokenAccount: ownerTokenAccount.address,
-        user: options.owner,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-      })
-      .rpc();
+    const burnIx = new TransactionInstruction({
+      keys: [
+        { pubkey: this.stablecoin, isSigner: false, isWritable: false },
+        { pubkey: this.mintAddress, isSigner: false, isWritable: true },
+        { pubkey: ownerAta.address, isSigner: false, isWritable: true },
+        { pubkey: options.owner, isSigner: true, isWritable: false },
+        { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
+      ],
+      programId: this.programId,
+      data: burnData,
+    });
 
-    return tx;
+    const ownerKeypair = options.ownerKeypair || this.authority;
+    return await this.sendAndConfirm(burnIx, [ownerKeypair]);
   }
 
   /**
    * Freeze an account
    */
   async freeze(account: PublicKey): Promise<string> {
-    const tx = await this.program.methods
-      .freezeAccount()
-      .accounts({
-        stablecoin: this.stablecoin,
-        mint: this.mintAddress,
-        targetTokenAccount: account,
-        authority: this.authority,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-      })
-      .rpc();
+    const freezeData = getInstructionDiscriminator("freeze_account");
 
-    return tx;
+    const freezeIx = new TransactionInstruction({
+      keys: [
+        { pubkey: this.stablecoin, isSigner: false, isWritable: false },
+        { pubkey: this.mintAddress, isSigner: false, isWritable: true },
+        { pubkey: account, isSigner: false, isWritable: true },
+        { pubkey: this.authority.publicKey, isSigner: true, isWritable: false },
+        { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
+      ],
+      programId: this.programId,
+      data: freezeData,
+    });
+
+    return await this.sendAndConfirm(freezeIx, [this.authority]);
   }
 
   /**
    * Thaw an account
    */
   async thaw(account: PublicKey): Promise<string> {
-    const tx = await this.program.methods
-      .thawAccount()
-      .accounts({
-        stablecoin: this.stablecoin,
-        mint: this.mintAddress,
-        targetTokenAccount: account,
-        authority: this.authority,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-      })
-      .rpc();
+    const thawData = getInstructionDiscriminator("thaw_account");
 
-    return tx;
+    const thawIx = new TransactionInstruction({
+      keys: [
+        { pubkey: this.stablecoin, isSigner: false, isWritable: false },
+        { pubkey: this.mintAddress, isSigner: false, isWritable: true },
+        { pubkey: account, isSigner: false, isWritable: true },
+        { pubkey: this.authority.publicKey, isSigner: true, isWritable: false },
+        { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
+      ],
+      programId: this.programId,
+      data: thawData,
+    });
+
+    return await this.sendAndConfirm(thawIx, [this.authority]);
   }
 
   /**
    * Pause all operations
    */
   async pause(): Promise<string> {
-    const tx = await this.program.methods
-      .pause()
-      .accounts({
-        stablecoin: this.stablecoin,
-        authority: this.authority,
-      })
-      .rpc();
+    const pauseData = getInstructionDiscriminator("pause");
 
-    return tx;
+    const pauseIx = new TransactionInstruction({
+      keys: [
+        { pubkey: this.stablecoin, isSigner: false, isWritable: true },
+        { pubkey: this.authority.publicKey, isSigner: true, isWritable: false },
+      ],
+      programId: this.programId,
+      data: pauseData,
+    });
+
+    return await this.sendAndConfirm(pauseIx, [this.authority]);
   }
 
   /**
    * Unpause operations
    */
   async unpause(): Promise<string> {
-    const tx = await this.program.methods
-      .unpause()
-      .accounts({
-        stablecoin: this.stablecoin,
-        authority: this.authority,
-      })
-      .rpc();
+    const unpauseData = getInstructionDiscriminator("unpause");
 
-    return tx;
+    const unpauseIx = new TransactionInstruction({
+      keys: [
+        { pubkey: this.stablecoin, isSigner: false, isWritable: true },
+        { pubkey: this.authority.publicKey, isSigner: true, isWritable: false },
+      ],
+      programId: this.programId,
+      data: unpauseData,
+    });
+
+    return await this.sendAndConfirm(unpauseIx, [this.authority]);
   }
 
   /**
    * Add or update a minter
    */
   async updateMinter(options: MinterOptions): Promise<string> {
-    const [minterAccount] = getMinterPDA(this.stablecoin, options.minter);
-    const quota = toBN(options.quota);
+    const [minterAccount] = getMinterPDA(this.stablecoin, options.minter, this.programId);
 
-    const tx = await this.program.methods
-      .updateMinter(quota, options.isActive)
-      .accounts({
-        stablecoin: this.stablecoin,
-        minterAccount,
-        minter: options.minter,
-        authority: this.authority,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
+    const updateMinterData = Buffer.concat([
+      getInstructionDiscriminator("update_minter"),
+      serializeU64(options.quota),
+      serializeBool(options.isActive),
+    ]);
 
-    return tx;
-  }
+    const updateMinterIx = new TransactionInstruction({
+      keys: [
+        { pubkey: this.stablecoin, isSigner: false, isWritable: false },
+        { pubkey: minterAccount, isSigner: false, isWritable: true },
+        { pubkey: options.minter, isSigner: false, isWritable: false },
+        { pubkey: this.authority.publicKey, isSigner: true, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      programId: this.programId,
+      data: updateMinterData,
+    });
 
-  /**
-   * Get minter account data
-   */
-  async getMinter(minter: PublicKey): Promise<MinterAccount | null> {
-    try {
-      const [minterAccount] = getMinterPDA(this.stablecoin, minter);
-      return await (this.program.account as any).minterAccount.fetch(minterAccount);
-    } catch {
-      return null;
-    }
+    return await this.sendAndConfirm(updateMinterIx, [this.authority]);
   }
 
   /**
    * Transfer authority to a new address
    */
   async transferAuthority(newAuthority: PublicKey): Promise<string> {
-    const tx = await this.program.methods
-      .transferAuthority(newAuthority)
-      .accounts({
-        stablecoin: this.stablecoin,
-        authority: this.authority,
-      })
-      .rpc();
+    const transferAuthorityData = Buffer.concat([
+      getInstructionDiscriminator("transfer_authority"),
+      serializePublicKey(newAuthority),
+    ]);
 
-    return tx;
+    const transferAuthorityIx = new TransactionInstruction({
+      keys: [
+        { pubkey: this.stablecoin, isSigner: false, isWritable: true },
+        { pubkey: this.authority.publicKey, isSigner: true, isWritable: false },
+      ],
+      programId: this.programId,
+      data: transferAuthorityData,
+    });
+
+    return await this.sendAndConfirm(transferAuthorityIx, [this.authority]);
   }
 
   /**
    * Get total supply
    */
-  async getTotalSupply(): Promise<number> {
+  async getTotalSupply(): Promise<bigint> {
     const mintInfo = await getMint(
       this.connection,
       this.mintAddress,
       undefined,
       TOKEN_2022_PROGRAM_ID
     );
-    return fromBN(new BN(mintInfo.supply.toString()), mintInfo.decimals);
+    return mintInfo.supply;
   }
 
   /**
@@ -378,38 +462,47 @@ export class SolanaStablecoin {
        * Add address to blacklist
        */
       blacklistAdd: async (options: BlacklistAddOptions): Promise<string> => {
-        const [blacklistEntry] = getBlacklistPDA(this.stablecoin, options.address);
+        const [blacklistEntry] = getBlacklistPDA(this.stablecoin, options.address, this.programId);
 
-        const tx = await this.program.methods
-          .addToBlacklist(options.reason)
-          .accounts({
-            stablecoin: this.stablecoin,
-            blacklistEntry,
-            targetAddress: options.address,
-            authority: this.authority,
-            systemProgram: SystemProgram.programId,
-          })
-          .rpc();
+        const addBlacklistData = Buffer.concat([
+          getInstructionDiscriminator("add_to_blacklist"),
+          serializeString(options.reason),
+        ]);
 
-        return tx;
+        const addBlacklistIx = new TransactionInstruction({
+          keys: [
+            { pubkey: this.stablecoin, isSigner: false, isWritable: false },
+            { pubkey: blacklistEntry, isSigner: false, isWritable: true },
+            { pubkey: options.address, isSigner: false, isWritable: false },
+            { pubkey: this.authority.publicKey, isSigner: true, isWritable: true },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          ],
+          programId: this.programId,
+          data: addBlacklistData,
+        });
+
+        return await this.sendAndConfirm(addBlacklistIx, [this.authority]);
       },
 
       /**
        * Remove address from blacklist
        */
       blacklistRemove: async (address: PublicKey): Promise<string> => {
-        const [blacklistEntry] = getBlacklistPDA(this.stablecoin, address);
+        const [blacklistEntry] = getBlacklistPDA(this.stablecoin, address, this.programId);
 
-        const tx = await this.program.methods
-          .removeFromBlacklist()
-          .accounts({
-            stablecoin: this.stablecoin,
-            blacklistEntry,
-            authority: this.authority,
-          })
-          .rpc();
+        const removeBlacklistData = getInstructionDiscriminator("remove_from_blacklist");
 
-        return tx;
+        const removeBlacklistIx = new TransactionInstruction({
+          keys: [
+            { pubkey: this.stablecoin, isSigner: false, isWritable: false },
+            { pubkey: blacklistEntry, isSigner: false, isWritable: true },
+            { pubkey: this.authority.publicKey, isSigner: true, isWritable: true },
+          ],
+          programId: this.programId,
+          data: removeBlacklistData,
+        });
+
+        return await this.sendAndConfirm(removeBlacklistIx, [this.authority]);
       },
 
       /**
@@ -417,23 +510,11 @@ export class SolanaStablecoin {
        */
       isBlacklisted: async (address: PublicKey): Promise<boolean> => {
         try {
-          const [blacklistEntry] = getBlacklistPDA(this.stablecoin, address);
-          await (this.program.account as any).blacklistEntry.fetch(blacklistEntry);
-          return true;
+          const [blacklistEntry] = getBlacklistPDA(this.stablecoin, address, this.programId);
+          const accountInfo = await this.connection.getAccountInfo(blacklistEntry);
+          return accountInfo !== null;
         } catch {
           return false;
-        }
-      },
-
-      /**
-       * Get blacklist entry
-       */
-      getBlacklistEntry: async (address: PublicKey): Promise<BlacklistEntry | null> => {
-        try {
-          const [blacklistEntry] = getBlacklistPDA(this.stablecoin, address);
-          return await (this.program.account as any).blacklistEntry.fetch(blacklistEntry);
-        } catch {
-          return null;
         }
       },
 
@@ -441,9 +522,9 @@ export class SolanaStablecoin {
        * Seize tokens from an account
        */
       seize: async (options: SeizeOptions): Promise<string> => {
-        const sourceAccount = await getOrCreateAssociatedTokenAccount(
+        const sourceAta = await getOrCreateAssociatedTokenAccount(
           this.connection,
-          this.wallet.payer,
+          this.authority,
           this.mintAddress,
           options.from,
           false,
@@ -452,9 +533,9 @@ export class SolanaStablecoin {
           TOKEN_2022_PROGRAM_ID
         );
 
-        const destinationAccount = await getOrCreateAssociatedTokenAccount(
+        const destinationAta = await getOrCreateAssociatedTokenAccount(
           this.connection,
-          this.wallet.payer,
+          this.authority,
           this.mintAddress,
           options.to,
           false,
@@ -463,21 +544,25 @@ export class SolanaStablecoin {
           TOKEN_2022_PROGRAM_ID
         );
 
-        const amount = toBN(options.amount);
+        const seizeData = Buffer.concat([
+          getInstructionDiscriminator("seize"),
+          serializeU64(options.amount),
+        ]);
 
-        const tx = await this.program.methods
-          .seize(amount)
-          .accounts({
-            stablecoin: this.stablecoin,
-            mint: this.mintAddress,
-            sourceAccount: sourceAccount.address,
-            destinationAccount: destinationAccount.address,
-            authority: this.authority,
-            tokenProgram: TOKEN_2022_PROGRAM_ID,
-          })
-          .rpc();
+        const seizeIx = new TransactionInstruction({
+          keys: [
+            { pubkey: this.stablecoin, isSigner: false, isWritable: false },
+            { pubkey: this.mintAddress, isSigner: false, isWritable: true },
+            { pubkey: sourceAta.address, isSigner: false, isWritable: true },
+            { pubkey: destinationAta.address, isSigner: false, isWritable: true },
+            { pubkey: this.authority.publicKey, isSigner: true, isWritable: false },
+            { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
+          ],
+          programId: this.programId,
+          data: seizeData,
+        });
 
-        return tx;
+        return await this.sendAndConfirm(seizeIx, [this.authority]);
       },
     };
   }

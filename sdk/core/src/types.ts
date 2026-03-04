@@ -1,5 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
-import BN from "bn.js";
+import { PublicKey, Keypair } from "@solana/web3.js";
 
 /**
  * Configuration for creating a new stablecoin
@@ -39,16 +38,18 @@ export interface CreateWithPresetOptions {
  */
 export interface MintOptions {
   recipient: PublicKey;
-  amount: number | BN;
+  amount: number | bigint;
   minter: PublicKey;
+  minterKeypair?: Keypair; // Optional, defaults to authority
 }
 
 /**
  * Options for burning tokens
  */
 export interface BurnOptions {
-  amount: number | BN;
+  amount: number | bigint;
   owner: PublicKey;
+  ownerKeypair?: Keypair; // Optional, defaults to authority
 }
 
 /**
@@ -56,7 +57,7 @@ export interface BurnOptions {
  */
 export interface MinterOptions {
   minter: PublicKey;
-  quota: number | BN;
+  quota: number | bigint;
   isActive: boolean;
 }
 
@@ -74,47 +75,5 @@ export interface BlacklistAddOptions {
 export interface SeizeOptions {
   from: PublicKey;
   to: PublicKey;
-  amount: number | BN;
-}
-
-/**
- * Stablecoin account data
- */
-export interface StablecoinAccount {
-  authority: PublicKey;
-  mint: PublicKey;
-  name: string;
-  symbol: string;
-  uri: string;
-  decimals: number;
-  enablePermanentDelegate: boolean;
-  enableTransferHook: boolean;
-  defaultAccountFrozen: boolean;
-  isPaused: boolean;
-  totalMinted: BN;
-  totalBurned: BN;
-  bump: number;
-}
-
-/**
- * Minter account data
- */
-export interface MinterAccount {
-  stablecoin: PublicKey;
-  minter: PublicKey;
-  quota: BN;
-  mintedAmount: BN;
-  isActive: boolean;
-  bump: number;
-}
-
-/**
- * Blacklist entry data
- */
-export interface BlacklistEntry {
-  stablecoin: PublicKey;
-  address: PublicKey;
-  reason: string;
-  timestamp: BN;
-  bump: number;
+  amount: number | bigint;
 }

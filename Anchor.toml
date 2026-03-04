@@ -5,19 +5,19 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-sss_core = "SSS1Core11111111111111111111111111111111111"
+sss_core = "4x5WYd89RdGgHRbt4qDt9ntvshKferBcaSwk2QWSh3q2"
 sss_transfer_hook = "SSS1Hook11111111111111111111111111111111111"
 
 [programs.devnet]
-sss_core = "SSS1Core11111111111111111111111111111111111"
+sss_core = "4x5WYd89RdGgHRbt4qDt9ntvshKferBcaSwk2QWSh3q2"
 sss_transfer_hook = "SSS1Hook11111111111111111111111111111111111"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Localnet"
-wallet = "~/.config/solana/id.json"
+cluster = "Devnet"
+wallet = "GGsJvBDCErzxjWegTZTS45PKaFLKx3LUWj9K96d3Zx8p.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

@@ -9,20 +9,20 @@ pub mod sss_core {
     use super::*;
 
     /// Initialize a new stablecoin with configurable features
-    pub fn initialize(ctx: Context<Initialize>, config: StablecoinConfig) -> Result<()> {
+    pub fn initialize(ctx: Context<Initialize>, init_config: StablecoinConfig) -> Result<()> {
         let stablecoin = &mut ctx.accounts.stablecoin;
 
         stablecoin.authority = ctx.accounts.authority.key();
         stablecoin.mint = ctx.accounts.mint.key();
-        stablecoin.name = config.name;
-        stablecoin.symbol = config.symbol;
-        stablecoin.uri = config.uri;
-        stablecoin.decimals = config.decimals;
+        stablecoin.name = init_config.name;
+        stablecoin.symbol = init_config.symbol;
+        stablecoin.uri = init_config.uri;
+        stablecoin.decimals = init_config.decimals;
 
         // SSS-2 compliance features
-        stablecoin.enable_permanent_delegate = config.enable_permanent_delegate;
-        stablecoin.enable_transfer_hook = config.enable_transfer_hook;
-        stablecoin.default_account_frozen = config.default_account_frozen;
+        stablecoin.enable_permanent_delegate = init_config.enable_permanent_delegate;
+        stablecoin.enable_transfer_hook = init_config.enable_transfer_hook;
+        stablecoin.default_account_frozen = init_config.default_account_frozen;
 
         stablecoin.is_paused = false;
         stablecoin.total_minted = 0;
