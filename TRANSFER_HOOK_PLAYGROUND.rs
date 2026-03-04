@@ -1,3 +1,6 @@
+// Copy this entire file to Solana Playground
+// This is the SSS Transfer Hook program for blacklist enforcement
+
 use anchor_lang::{
     prelude::*,
     system_program::{create_account, CreateAccount},
