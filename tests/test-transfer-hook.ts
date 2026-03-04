@@ -1,7 +1,7 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 
 // Program IDs
-const SSS_CORE_PROGRAM_ID = new PublicKey("4x5WYd89RdGgHRbt4qDt9ntvshKferBcaSwk2QWSh3q2");
+const SSS_CORE_PROGRAM_ID = new PublicKey("BBED2cVQ933QETonEdS7XLR7Q99k6cwpfp42113hEt2o");
 const TRANSFER_HOOK_PROGRAM_ID = new PublicKey("4vSUUS2Q2u7EdLt2J419etC9HuQDsHksEYmMzQEvLbPq");
 
 // Connection

@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_2022::{self, Burn, FreezeAccount, MintTo, ThawAccount, Token2022};
 use anchor_spl::token_interface::{Mint, TokenAccount};
 
-declare_id!("SSS1Core11111111111111111111111111111111111");
+declare_id!("BBED2cVQ933QETonEdS7XLR7Q99k6cwpfp42113hEt2o");
 
 #[program]
 pub mod sss_core {

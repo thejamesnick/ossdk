@@ -12,7 +12,7 @@ import {
 } from "@solana/spl-token";
 import * as fs from "fs";
 
-const programId = new PublicKey("4x5WYd89RdGgHRbt4qDt9ntvshKferBcaSwk2QWSh3q2");
+const programId = new PublicKey("BBED2cVQ933QETonEdS7XLR7Q99k6cwpfp42113hEt2o");
 
 // Helper to create Token-2022 mint with Permanent Delegate extension
 async function createMintWithPermanentDelegate(

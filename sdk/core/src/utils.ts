@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { StablecoinConfig } from "./types";
 
 export const SSS_CORE_PROGRAM_ID = new PublicKey(
-  "4x5WYd89RdGgHRbt4qDt9ntvshKferBcaSwk2QWSh3q2"
+  "BBED2cVQ933QETonEdS7XLR7Q99k6cwpfp42113hEt2o"
 );
 
 /**
