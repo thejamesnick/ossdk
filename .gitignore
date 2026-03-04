@@ -6,13 +6,14 @@ test-ledger/
 
 # Anchor build artifacts
 .anchor/
-target/deploy/
-target/sbf-solana-solana/
-target/types/
-
-# Keep IDL files for SDK
+target/
+**/target/
 !target/idl/
 target/idl/*.ts
+
+# Rust/Cargo
+**/Cargo.lock
+!Cargo.lock
 
 # Yarn
 .yarn/*
