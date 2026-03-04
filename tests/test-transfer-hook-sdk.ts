@@ -1,4 +1,4 @@
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { SolanaStablecoin } from "../sdk/core/src/client";
 import { Presets } from "../sdk/core/src/presets";
 import * as fs from "fs";
@@ -61,9 +61,18 @@ async function test() {
     const alice = Keypair.generate();
     const bob = Keypair.generate();
     
-    // Airdrop to Alice for tx fees
-    const airdropSig = await connection.requestAirdrop(alice.publicKey, 1000000000);
-    await connection.confirmTransaction(airdropSig);
+    // Fund Alice from authority wallet instead of airdrop
+    const fundAliceTx = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: authority.publicKey,
+        toPubkey: alice.publicKey,
+        lamports: 100000000, // 0.1 SOL
+      })
+    );
+    await connection.sendTransaction(fundAliceTx, [authority]);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    console.log("✅ Funded Alice with 0.1 SOL");
     
     // Mint tokens to Alice
     await stablecoin.mintTokens({
