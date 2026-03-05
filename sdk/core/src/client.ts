@@ -16,6 +16,7 @@ import {
   ExtensionType,
   createInitializeMintInstruction,
   createInitializePermanentDelegateInstruction,
+  createInitializeTransferHookInstruction,
 } from "@solana/spl-token";
 import {
   StablecoinConfig,
@@ -103,8 +104,21 @@ export class SolanaStablecoin {
     const [stablecoin] = getStablecoinPDA(mintKeypair.publicKey, programId);
 
     // Create mint with appropriate extensions
-    if (config.enablePermanentDelegate) {
-      // Create mint with Permanent Delegate extension for SSS-2
+    if (config.enablePermanentDelegate && config.enableTransferHook) {
+      // Create mint with both Permanent Delegate and Transfer Hook for SSS-2
+      const transferHookProgramId = new PublicKey("2pMqj2G5tEiCMoSyWHcoCX383q5ji2hZcVCDxSYiyHje");
+      await SolanaStablecoin.createMintWithExtensions(
+        connection,
+        authority,
+        stablecoin,
+        stablecoin,
+        config.decimals,
+        stablecoin,
+        transferHookProgramId,
+        mintKeypair
+      );
+    } else if (config.enablePermanentDelegate) {
+      // Create mint with Permanent Delegate extension only
       await SolanaStablecoin.createMintWithPermanentDelegate(
         connection,
         authority,
@@ -204,6 +218,57 @@ export class SolanaStablecoin {
       createInitializePermanentDelegateInstruction(
         mintKeypair.publicKey,
         permanentDelegate,
+        TOKEN_2022_PROGRAM_ID
+      ),
+      createInitializeMintInstruction(
+        mintKeypair.publicKey,
+        decimals,
+        mintAuthority,
+        freezeAuthority,
+        TOKEN_2022_PROGRAM_ID
+      )
+    );
+
+    await connection.sendTransaction(transaction, [payer, mintKeypair]);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    return mintKeypair.publicKey;
+  }
+
+  /**
+   * Helper to create Token-2022 mint with both Permanent Delegate and Transfer Hook extensions
+   */
+  private static async createMintWithExtensions(
+    connection: Connection,
+    payer: Keypair,
+    mintAuthority: PublicKey,
+    freezeAuthority: PublicKey,
+    decimals: number,
+    permanentDelegate: PublicKey,
+    transferHookProgramId: PublicKey,
+    mintKeypair: Keypair
+  ): Promise<PublicKey> {
+    const extensions = [ExtensionType.PermanentDelegate, ExtensionType.TransferHook];
+    const mintLen = getMintLen(extensions);
+    const lamports = await connection.getMinimumBalanceForRentExemption(mintLen);
+
+    const transaction = new Transaction().add(
+      SystemProgram.createAccount({
+        fromPubkey: payer.publicKey,
+        newAccountPubkey: mintKeypair.publicKey,
+        space: mintLen,
+        lamports,
+        programId: TOKEN_2022_PROGRAM_ID,
+      }),
+      createInitializePermanentDelegateInstruction(
+        mintKeypair.publicKey,
+        permanentDelegate,
+        TOKEN_2022_PROGRAM_ID
+      ),
+      createInitializeTransferHookInstruction(
+        mintKeypair.publicKey,
+        payer.publicKey,
+        transferHookProgramId,
         TOKEN_2022_PROGRAM_ID
       ),
       createInitializeMintInstruction(

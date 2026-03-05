@@ -65,16 +65,29 @@ pub mod sss_transfer_hook {
         // Get account info
         let account_size = ExtraAccountMetaList::size_of(extra_account_metas.len())?;
 
-        // Create the account
+        // Calculate rent
+        let lamports = Rent::get()?.minimum_balance(account_size);
+
+        // Get the bump for the PDA
+        let mint_key = ctx.accounts.mint.key();
+        let seeds = &[
+            b"extra-account-metas",
+            mint_key.as_ref(),
+            &[ctx.bumps.extra_account_meta_list],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        // Create the account with PDA signer
         create_account(
-            CpiContext::new(
+            CpiContext::new_with_signer(
                 ctx.accounts.system_program.to_account_info(),
                 CreateAccount {
                     from: ctx.accounts.payer.to_account_info(),
                     to: ctx.accounts.extra_account_meta_list.to_account_info(),
                 },
+                signer_seeds,
             ),
-            10_000_000, // 10 SOL for rent
+            lamports,
             account_size as u64,
             &ctx.program_id,
         )?;

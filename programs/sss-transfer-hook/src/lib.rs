@@ -18,41 +18,65 @@ pub mod sss_transfer_hook {
     /// This tells Token-2022 which additional accounts to include in transfer instructions
     pub fn initialize_extra_account_meta_list(
         ctx: Context<InitializeExtraAccountMetaList>,
-        _sss_core_program_id: Pubkey,
     ) -> Result<()> {
         // Define the extra accounts needed for blacklist checks
+        // Account indices in Execute instruction:
+        // 0: source token account
+        // 1: mint
+        // 2: destination token account
+        // 3: authority (source owner)
+        // 4: extra_account_meta_list (this account)
+        // 5+: our extra accounts start here
+
         let extra_account_metas = vec![
-            // Stablecoin PDA from sss-core
-            ExtraAccountMeta::new_with_seeds(
+            // Extra account 0 (index 5): SSS Core program ID
+            // This is needed so we can reference it for deriving PDAs
+            ExtraAccountMeta::new_with_pubkey(
+                &ctx.accounts.sss_core_program.key(),
+                false, // not signer
+                false, // not writable
+            )?,
+            // Extra account 1 (index 6): Stablecoin PDA from sss-core
+            // PDA off the SSS Core program (index 5)
+            ExtraAccountMeta::new_external_pda_with_seeds(
+                5, // program index (SSS Core at index 5)
                 &[
                     Seed::Literal {
                         bytes: b"stablecoin".to_vec(),
                     },
-                    Seed::AccountKey { index: 0 }, // mint
+                    Seed::AccountKey { index: 1 }, // mint
                 ],
                 false, // not writable
                 false, // not signer
             )?,
-            // Source owner's blacklist entry (may not exist)
-            ExtraAccountMeta::new_with_seeds(
+            // Extra account 2 (index 7): Source owner's blacklist entry
+            // PDA off the SSS Core program
+            ExtraAccountMeta::new_external_pda_with_seeds(
+                5, // program index (SSS Core)
                 &[
                     Seed::Literal {
                         bytes: b"blacklist".to_vec(),
                     },
-                    Seed::AccountKey { index: 4 }, // stablecoin PDA (index 4 in extra accounts)
-                    Seed::AccountKey { index: 3 }, // source owner
+                    Seed::AccountKey { index: 6 }, // stablecoin PDA
+                    Seed::AccountKey { index: 3 }, // authority/source owner
                 ],
                 false, // not writable
                 false, // not signer
             )?,
-            // Destination owner's blacklist entry (may not exist)
-            ExtraAccountMeta::new_with_seeds(
+            // Extra account 3 (index 8): Destination owner's blacklist entry
+            // PDA off the SSS Core program
+            ExtraAccountMeta::new_external_pda_with_seeds(
+                5, // program index (SSS Core)
                 &[
                     Seed::Literal {
                         bytes: b"blacklist".to_vec(),
                     },
-                    Seed::AccountKey { index: 4 }, // stablecoin PDA
-                    Seed::AccountKey { index: 5 }, // destination owner
+                    Seed::AccountKey { index: 6 }, // stablecoin PDA
+                    Seed::AccountData {
+                        account_index: 2, // destination token account
+                        data_index: 32,   // owner field offset
+                        length: 32,       // pubkey length
+                    },
                 ],
                 false, // not writable
                 false, // not signer
@@ -62,16 +86,29 @@ pub mod sss_transfer_hook {
         // Get account info
         let account_size = ExtraAccountMetaList::size_of(extra_account_metas.len())?;
 
-        // Create the account
+        // Calculate rent
+        let lamports = Rent::get()?.minimum_balance(account_size);
+
+        // Get the bump for the PDA
+        let mint_key = ctx.accounts.mint.key();
+        let seeds = &[
+            b"extra-account-metas",
+            mint_key.as_ref(),
+            &[ctx.bumps.extra_account_meta_list],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        // Create the account with PDA signer
         create_account(
-            CpiContext::new(
+            CpiContext::new_with_signer(
                 ctx.accounts.system_program.to_account_info(),
                 CreateAccount {
                     from: ctx.accounts.payer.to_account_info(),
                     to: ctx.accounts.extra_account_meta_list.to_account_info(),
                 },
+                signer_seeds,
             ),
-            10_000_000, // 10 SOL for rent
+            lamports,
             account_size as u64,
             &ctx.program_id,
         )?;
@@ -141,6 +178,7 @@ pub mod sss_transfer_hook {
                 let destination_info = next_account_info(account_info_iter)?;
                 let authority_info = next_account_info(account_info_iter)?;
                 let extra_account_meta_list_info = next_account_info(account_info_iter)?;
+                let sss_core_program_info = next_account_info(account_info_iter)?;
                 let stablecoin_info = next_account_info(account_info_iter)?;
                 let source_blacklist_info = next_account_info(account_info_iter)?;
                 let destination_blacklist_info = next_account_info(account_info_iter)?;
@@ -152,6 +190,7 @@ pub mod sss_transfer_hook {
                     destination: InterfaceAccount::try_from(destination_info)?,
                     authority: authority_info.clone(),
                     extra_account_meta_list: extra_account_meta_list_info.clone(),
+                    sss_core_program: sss_core_program_info.clone(),
                     stablecoin: stablecoin_info.clone(),
                     source_blacklist: source_blacklist_info.clone(),
                     destination_blacklist: destination_blacklist_info.clone(),
@@ -194,6 +233,10 @@ pub struct InitializeExtraAccountMetaList<'info> {
     pub extra_account_meta_list: AccountInfo<'info>,
 
     pub mint: InterfaceAccount<'info, Mint>,
+
+    /// CHECK: SSS Core program ID - needed to derive PDAs off this program
+    pub sss_core_program: AccountInfo<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -208,6 +251,9 @@ pub struct Execute<'info> {
 
     /// CHECK: Extra account meta list
     pub extra_account_meta_list: AccountInfo<'info>,
+
+    /// CHECK: SSS Core program ID
+    pub sss_core_program: AccountInfo<'info>,
 
     /// CHECK: Stablecoin config from sss-core (validated by seeds in extra account metas)
     pub stablecoin: AccountInfo<'info>,
