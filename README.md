@@ -51,6 +51,33 @@ await stable.compliance.seize(frozenAccount, treasury);
 
 ## Architecture
 
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Layer 3: Presets                         │
+│  ┌──────────┐  ┌──────────────┐  ┌──────────────┐         │
+│  │  SSS-1   │  │    SSS-2     │  │    SSS-3     │         │
+│  │ Minimal  │  │  Compliant   │  │   Private    │         │
+│  └──────────┘  └──────────────┘  └──────────────┘         │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│                   Layer 2: Modules                          │
+│  ┌────────────────────┐  ┌────────────────────┐           │
+│  │ Compliance Module  │  │  Privacy Module    │           │
+│  │ • Transfer Hook    │  │ • Confidential TX  │           │
+│  │ • Blacklist        │  │ • Allowlists       │           │
+│  │ • Permanent Del.   │  │                    │           │
+│  └────────────────────┘  └────────────────────┘           │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│                   Layer 1: Base SDK                         │
+│  • Token-2022 Creation  • Mint/Freeze Authority            │
+│  • Metadata Support     • Role Management                   │
+│  • CLI + TypeScript SDK                                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
 **Layer 1 — Base SDK**
 - Token creation with Token-2022
 - Mint/freeze authority
@@ -86,16 +113,57 @@ git clone https://github.com/solanabr/solana-stablecoin-standard
 cd solana-stablecoin-standard
 
 # Install dependencies
-npm install
+yarn install
 
 # Build programs
 anchor build
 
 # Run tests
 anchor test
+```
 
-# Start backend services
+## Running Backend Services
+
+The backend services are Docker containerized for easy deployment.
+
+### Prerequisites
+- Docker and Docker Compose installed
+- Copy `.env.example` to `.env` and configure
+
+### Start All Services
+
+```bash
+# Start all backend services
 docker compose up
+
+# Or run in detached mode
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop services
+docker compose down
+```
+
+### Services
+
+The Docker setup includes:
+
+- **Mint/Burn Service** (Port 3001) - Handles mint and burn requests
+- **Indexer Service** (Port 3002) - Monitors on-chain events
+- **Compliance Service** (Port 3003) - Manages blacklist and compliance
+- **Webhook Service** (Port 3004) - Delivers event notifications
+- **PostgreSQL** (Port 5432) - Database for indexer and compliance
+- **Redis** (Port 6379) - Queue for webhook delivery
+
+### Health Checks
+
+```bash
+curl http://localhost:3001/health  # Mint/Burn
+curl http://localhost:3002/health  # Indexer
+curl http://localhost:3003/health  # Compliance
+curl http://localhost:3004/health  # Webhooks
 ```
 
 ## Documentation
@@ -134,8 +202,8 @@ solana-stablecoin-standard/
 
 | Program | Devnet | Mainnet |
 |---------|--------|---------|
-| sss-core | TBD | TBD |
-| sss-transfer-hook | TBD | TBD |
+| sss-core | `4x5WYd89RdGgHRbt4qDt9ntvshKferBcaSwk2QWSh3q2` | TBD |
+| sss-transfer-hook | `2pMqj2G5tEiCMoSyWHcoCX383q5ji2hZcVCDxSYiyHje` | TBD |
 
 ## Resources
 

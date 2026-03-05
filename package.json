@@ -5,17 +5,23 @@
   "main": "index.js",
   "workspaces": [
     "sdk/core",
-    "sdk/cli"
+    "sdk/cli",
+    "services/mint-burn",
+    "services/indexer",
+    "services/compliance",
+    "services/webhooks"
   ],
   "scripts": {
-    "build": "anchor build && npm run build:sdk",
-    "build:sdk": "npm run build --workspaces",
+    "build": "anchor build && yarn build:sdk",
+    "build:sdk": "yarn workspaces foreach -pt run build",
+    "build:services": "yarn workspaces foreach -pt --include 'services/*' run build",
     "test": "anchor test",
     "test:unit": "anchor test -- --grep 'unit'",
     "test:integration": "anchor test -- --grep 'integration'",
     "deploy": "anchor deploy",
     "services": "docker compose up",
-    "services:build": "docker compose build"
+    "services:build": "docker compose build",
+    "services:dev": "docker compose up --build"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.32.1",

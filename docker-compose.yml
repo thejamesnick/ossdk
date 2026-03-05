@@ -1,0 +1,128 @@
+version: '3.8'
+
+services:
+  # Mint/Burn Service
+  mint-burn-service:
+    build:
+      context: ./services/mint-burn
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - SOLANA_RPC_URL=${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+      - PROGRAM_ID=${PROGRAM_ID:-4x5WYd89RdGgHRbt4qDt9ntvshKferBcaSwk2QWSh3q2}
+      - MINTER_KEYPAIR_PATH=/keys/minter.json
+    volumes:
+      - ./keys:/keys:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Event Indexer Service
+  indexer-service:
+    build:
+      context: ./services/indexer
+      dockerfile: Dockerfile
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - SOLANA_RPC_URL=${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+      - PROGRAM_ID=${PROGRAM_ID:-4x5WYd89RdGgHRbt4qDt9ntvshKferBcaSwk2QWSh3q2}
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/sss_indexer
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Compliance Service
+  compliance-service:
+    build:
+      context: ./services/compliance
+      dockerfile: Dockerfile
+    ports:
+      - "3003:3003"
+    environment:
+      - PORT=3003
+      - SOLANA_RPC_URL=${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+      - PROGRAM_ID=${PROGRAM_ID:-4x5WYd89RdGgHRbt4qDt9ntvshKferBcaSwk2QWSh3q2}
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/sss_compliance
+      - AUTHORITY_KEYPAIR_PATH=/keys/authority.json
+    volumes:
+      - ./keys:/keys:ro
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Webhook Service
+  webhook-service:
+    build:
+      context: ./services/webhooks
+      dockerfile: Dockerfile
+    ports:
+      - "3004:3004"
+    environment:
+      - PORT=3004
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=sss_indexer
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./services/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis for Webhook Queue
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: sss-network
