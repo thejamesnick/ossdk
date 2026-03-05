@@ -60,7 +60,7 @@
 - [x] SSS-2 instructions
   - [x] add_to_blacklist
   - [x] remove_from_blacklist
-  - [ ] seize (via permanent delegate)
+  - [x] seize (via permanent delegate)
 - [x] Transfer hook program
 - [x] Role-based access control
 - [x] Per-minter quotas
